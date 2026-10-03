@@ -5,7 +5,7 @@ def main_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="SELL CRYPTO ⚡", callback_data="sell")],
         [InlineKeyboardButton(text="Saved Payment Methods", callback_data="saved")],
-        [InlineKeyboardButton(text="Support ↗", callback_data="support")],
+        [InlineKeyboardButton(text="Support ↗", url="https://t.me/cryptoXgoon"")],
         [InlineKeyboardButton(text="↩️ BACK", callback_data="back")],
     ])
 
