@@ -13,8 +13,10 @@ VALID_METHODS = {"UPI", "CDM", "IMPS"}
 
 
 def is_owner_dm(message: Message, config: Config) -> bool:
+    """Owner admin commands are allowed only from the configured owner's DM."""
     return (
         message.from_user is not None
+        and message.chat is not None
         and message.from_user.id == config.owner_admin_id
         and message.chat.type == "private"
     )
@@ -22,23 +24,27 @@ def is_owner_dm(message: Message, config: Config) -> bool:
 
 def parse_amount(value: str) -> Decimal:
     amount = Decimal(value)
-    if amount <= 0:
-        raise ValueError
-    if amount.as_tuple().exponent < -2:
+    if amount <= 0 or amount.as_tuple().exponent < -2:
         raise ValueError
     return amount
 
 
-@router.message(Command("admin"))
-async def admin_help(message: Message, config: Config):
+async def owner_guard(message: Message, config: Config) -> bool:
+    """Return True when this is the owner DM. Give useful diagnostics otherwise."""
     if message.from_user is None:
-        return
+        return False
     if message.from_user.id != config.owner_admin_id:
-        return
+        return False
     if message.chat.type != "private":
         await message.answer("Owner admin commands work only in your private DM with the bot.")
-        return
+        return False
+    return True
 
+
+@router.message(Command("admin"))
+async def admin_help(message: Message, config: Config):
+    if not await owner_guard(message, config):
+        return
     await message.answer(
         "👑 Owner Admin Panel\n\n"
         "Payment methods:\n"
@@ -57,12 +63,11 @@ async def admin_help(message: Message, config: Config):
 
 
 async def enable_method(message: Message, session, config: Config, code: str):
-    if not is_owner_dm(message, config):
-        if message.from_user and message.from_user.id == config.owner_admin_id:
-            await message.answer("Owner admin commands work only in your private DM with the bot.")
+    if not await owner_guard(message, config):
         return
-
-    method = await session.scalar(select(PaymentMethod).where(PaymentMethod.code == code))
+    method = await session.scalar(
+        select(PaymentMethod).where(PaymentMethod.code == code)
+    )
     if not method:
         method = PaymentMethod(code=code, enabled=True)
         session.add(method)
@@ -89,9 +94,7 @@ async def imps_enable(message: Message, session, config: Config):
 
 @router.message(Command("add_operator"))
 async def add_operator(message: Message, session, config: Config):
-    if not is_owner_dm(message, config):
-        if message.from_user and message.from_user.id == config.owner_admin_id:
-            await message.answer("Owner admin commands work only in your private DM with the bot.")
+    if not await owner_guard(message, config):
         return
 
     parts = (message.text or "").split()
@@ -113,7 +116,8 @@ async def add_operator(message: Message, session, config: Config):
         await message.answer(
             "Invalid values. Use:\n"
             "/add_operator <telegram_id> <method> <min> <max>\n\n"
-            "Example: /add_operator 123456789 UPI 10 600"
+            "Example:\n"
+            "/add_operator 123456789 UPI 10 600"
         )
         return
 
@@ -122,6 +126,11 @@ async def add_operator(message: Message, session, config: Config):
         return
     if min_amount > max_amount:
         await message.answer("Minimum amount cannot be greater than maximum amount.")
+        return
+    if telegram_id == config.owner_admin_id:
+        await message.answer(
+            "That ID is the owner. The owner is automatically allowed to handle every method and amount."
+        )
         return
 
     operator = await session.scalar(
@@ -164,9 +173,7 @@ async def add_operator(message: Message, session, config: Config):
 
 @router.message(Command("remove_operator"))
 async def remove_operator(message: Message, session, config: Config):
-    if not is_owner_dm(message, config):
-        if message.from_user and message.from_user.id == config.owner_admin_id:
-            await message.answer("Owner admin commands work only in your private DM with the bot.")
+    if not await owner_guard(message, config):
         return
 
     parts = (message.text or "").split()
@@ -180,6 +187,10 @@ async def remove_operator(message: Message, session, config: Config):
         await message.answer("Telegram ID must be a number.")
         return
 
+    if telegram_id == config.owner_admin_id:
+        await message.answer("The owner cannot be removed.")
+        return
+
     operator = await session.scalar(
         select(Operator).where(Operator.telegram_id == telegram_id)
     )
@@ -189,47 +200,53 @@ async def remove_operator(message: Message, session, config: Config):
 
     operator.enabled = False
     await session.execute(
-        delete(OperatorPermission).where(OperatorPermission.operator_id == operator.id)
+        delete(OperatorPermission).where(
+            OperatorPermission.operator_id == operator.id
+        )
     )
     await session.commit()
-    await message.answer(f"Operator {telegram_id} disabled and permissions removed ✅")
+    await message.answer(
+        f"Operator {telegram_id} disabled and permissions removed ✅"
+    )
 
 
 @router.message(Command("operators"))
 async def list_operators(message: Message, session, config: Config):
-    if not is_owner_dm(message, config):
-        if message.from_user and message.from_user.id == config.owner_admin_id:
-            await message.answer("Owner admin commands work only in your private DM with the bot.")
+    if not await owner_guard(message, config):
         return
 
     operators = (
-        await session.execute(select(Operator).order_by(Operator.telegram_id))
+        await session.execute(
+            select(Operator).order_by(Operator.telegram_id)
+        )
     ).scalars().all()
-    if not operators or all(op.telegram_id == config.owner_admin_id for op in operators):
-        await message.answer("No operators configured.")
-        return
 
-    lines = ["👤 Operators\n"]
-    for operator in operators:
-        if operator.telegram_id == config.owner_admin_id:
-            continue
-        permissions = (
-            await session.execute(
-                select(OperatorPermission).where(
-                    OperatorPermission.operator_id == operator.id
-                ).order_by(OperatorPermission.payment_method)
-            )
-        ).scalars().all()
-        status = "🟢 Enabled" if operator.enabled else "🔴 Disabled"
-        lines.append(f"{operator.telegram_id} — {status}")
-        if permissions:
-            for permission in permissions:
-                lines.append(
-                    f"  • {permission.payment_method}: "
-                    f"${permission.min_amount:g} - ${permission.max_amount:g}"
+    lines = [
+        "👤 Operators\n",
+        f"👑 Owner: {config.owner_admin_id} — Super operator\n",
+    ]
+
+    visible = [op for op in operators if op.telegram_id != config.owner_admin_id]
+    if not visible:
+        lines.append("\nNo additional operators configured.")
+    else:
+        for operator in visible:
+            status = "🟢 Enabled" if operator.enabled else "🔴 Disabled"
+            lines.append(f"\n{operator.telegram_id} — {status}")
+            permissions = (
+                await session.execute(
+                    select(OperatorPermission).where(
+                        OperatorPermission.operator_id == operator.id
+                    ).order_by(OperatorPermission.payment_method)
                 )
-        else:
-            lines.append("  • No permissions")
-        lines.append("")
+            ).scalars().all()
+            if permissions:
+                for permission in permissions:
+                    lines.append(
+                        f"  • {permission.payment_method}: "
+                        f"${permission.min_amount:g} - ${permission.max_amount:g}"
+                    )
+            else:
+                lines.append("  • No permissions")
 
     await message.answer("\n".join(lines))
