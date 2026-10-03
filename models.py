@@ -6,8 +6,10 @@ from sqlalchemy import String, Integer, BigInteger, Boolean, DateTime, Numeric, 
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from database import Base
 
+
 def now():
     return datetime.now(timezone.utc)
+
 
 class OrderStatus(str, Enum):
     CREATED = "CREATED"
@@ -25,12 +27,18 @@ class OrderStatus(str, Enum):
     CANCELLED = "CANCELLED"
     EXPIRED = "EXPIRED"
 
+
 class User(Base):
     __tablename__ = "users"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     telegram_id: Mapped[int] = mapped_column(BigInteger, unique=True, index=True)
     username: Mapped[str | None] = mapped_column(String(255))
+    # The first valid referrer is stored permanently. It is never overwritten.
+    referrer_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True, index=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
 
 class PaymentMethod(Base):
     __tablename__ = "payment_methods"
@@ -38,17 +46,20 @@ class PaymentMethod(Base):
     code: Mapped[str] = mapped_column(String(32), unique=True)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
 
+
 class Asset(Base):
     __tablename__ = "assets"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     code: Mapped[str] = mapped_column(String(32), unique=True)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
 
+
 class Network(Base):
     __tablename__ = "networks"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     code: Mapped[str] = mapped_column(String(32), unique=True)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+
 
 class AssetNetwork(Base):
     __tablename__ = "asset_networks"
@@ -57,6 +68,7 @@ class AssetNetwork(Base):
     network_id: Mapped[int] = mapped_column(ForeignKey("networks.id"))
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     __table_args__ = (UniqueConstraint("asset_id", "network_id"),)
+
 
 class WalletAddress(Base):
     __tablename__ = "wallet_addresses"
@@ -67,6 +79,7 @@ class WalletAddress(Base):
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     __table_args__ = (UniqueConstraint("asset_id", "network_id"),)
 
+
 class RateTier(Base):
     __tablename__ = "rate_tiers"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -76,11 +89,13 @@ class RateTier(Base):
     rate: Mapped[Decimal] = mapped_column(Numeric(18, 8))
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
 
+
 class Operator(Base):
     __tablename__ = "operators"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     telegram_id: Mapped[int] = mapped_column(BigInteger, unique=True)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+
 
 class OperatorPermission(Base):
     __tablename__ = "operator_permissions"
@@ -90,6 +105,7 @@ class OperatorPermission(Base):
     min_amount: Mapped[Decimal] = mapped_column(Numeric(18, 8))
     max_amount: Mapped[Decimal] = mapped_column(Numeric(18, 8))
 
+
 class SavedPayout(Base):
     __tablename__ = "saved_payouts"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -98,6 +114,7 @@ class SavedPayout(Base):
     details: Mapped[str] = mapped_column(Text)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
     __table_args__ = (UniqueConstraint("user_id", "payment_method"),)
+
 
 class Order(Base):
     __tablename__ = "orders"
@@ -119,6 +136,7 @@ class Order(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
 
+
 class OrderHistory(Base):
     __tablename__ = "order_history"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -127,6 +145,7 @@ class OrderHistory(Base):
     new_status: Mapped[str] = mapped_column(String(40))
     actor_telegram_id: Mapped[int | None] = mapped_column(BigInteger)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
 
 class Setting(Base):
     __tablename__ = "settings"

@@ -1,11 +1,28 @@
+import os
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 
-def main_menu():
+def main_menu(support_username: str | None = None):
+    # Keep the function backwards-compatible with the rest of the project.
+    # If no username is passed, read it from the environment.
+    support_username = (support_username or os.getenv("SUPPORT_USERNAME", "")).strip().lstrip("@")
+
+    if support_username:
+        support_button = InlineKeyboardButton(
+            text="Support ↗",
+            url=f"https://t.me/{support_username}",
+        )
+    else:
+        support_button = InlineKeyboardButton(
+            text="Support",
+            callback_data="support",
+        )
+
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="SELL CRYPTO ⚡", callback_data="sell")],
         [InlineKeyboardButton(text="Saved Payment Methods", callback_data="saved")],
-        [InlineKeyboardButton(text="Support ↗", url="https://t.me/cryptoXgoon"")],
+        [support_button],
+        [InlineKeyboardButton(text="👥 Referral", callback_data="referral")],
         [InlineKeyboardButton(text="↩️ BACK", callback_data="back")],
     ])
 
@@ -60,6 +77,7 @@ def payout_choices(method, has_saved):
         rows.append([InlineKeyboardButton(text=f"Use Saved {method}", callback_data="payout:saved")])
     rows.append([InlineKeyboardButton(text=f"＋ Add New {method}", callback_data="payout:new")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
 
 def cdm_banks():
     return InlineKeyboardMarkup(inline_keyboard=[
